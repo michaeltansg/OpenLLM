@@ -16,7 +16,11 @@ class Llama(openllm.LLM["transformers.LlamaForCausalLM", "transformers.LlamaToke
   def sanitize_parameters(self, prompt: str, top_k: int | None = None, top_p: float | None = None, temperature: float | None = None, max_new_tokens: int | None = None, use_default_prompt_template: bool = False, use_llama2_prompt: bool = True, **attrs: t.Any) -> tuple[str, dict[str, t.Any], dict[str, t.Any]]: return process_prompt(prompt, DEFAULT_PROMPT_TEMPLATE("v2" if use_llama2_prompt else "v1") if use_default_prompt_template else None, use_default_prompt_template, **attrs), {"max_new_tokens": max_new_tokens, "temperature": temperature, "top_p": top_p, "top_k": top_k}, {}
   def postprocess_generate(self, prompt: str, generation_result: list[str], **_: t.Any) -> str: return generation_result[0]
   def generate(self, prompt: str, **attrs: t.Any) -> list[str]:
-    with torch.inference_mode(): return self.tokenizer.batch_decode(self.model.generate(**self.tokenizer(prompt, return_tensors="pt").to(self.device), generation_config=self.config.model_construct_env(**attrs).to_generation_config(), do_sample=True, stopping_criteria=openllm.StoppingCriteriaList([openllm.StopOnTokens()])), skip_special_tokens=True, clean_up_tokenization_spaces=True)
+    with torch.inference_mode():
+      input_ids = self.tokenizer(prompt, return_tensors="pt").to(self.device)["input_ids"]
+      outputs = self.model.generate(**inputs, generation_config=self.config.model_construct_env(**attrs).to_generation_config(), do_sample=True, stopping_criteria=openllm.StoppingCriteriaList([openllm.StopOnTokens()]))
+      sliced_outputs = [output[len(input_id):] for output, input_id in zip(outputs, input_ids)]
+      return self.tokenizer.batch_decode(sliced_outputs, skip_special_tokens=True, clean_up_tokenization_spaces=True)
   def embeddings(self, prompts: list[str]) -> openllm.LLMEmbeddings:
     encoding = self.tokenizer(prompts, padding=True, return_tensors="pt").to(self.device)
     input_ids, attention_mask = encoding["input_ids"], encoding["attention_mask"]
